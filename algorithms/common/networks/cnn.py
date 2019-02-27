@@ -43,7 +43,7 @@ class CNNLayer(nn.Module):
         self.pulling_fn = pulling_fn
 
     def forward(self, x):
-        return self.pulling_fn(self.activation_fn(self.cnn(x), inplace=True))
+        return self.pulling_fn(self.activation_fn(self.cnn(x)))
 
 
 class CNN(nn.Module):
@@ -63,7 +63,7 @@ class CNN(nn.Module):
         """Get the activation of the last cnn layer."""
         if len(x.size()) == 3:
             x = x.unsqueeze(0)
-        x = self.cnn(x)
+        x = self.cnn(x).squeeze()
         x = x.view(x.size(0), -1)
         return x
 

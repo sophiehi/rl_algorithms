@@ -9,6 +9,7 @@
 """
 
 import argparse
+import datetime
 import os
 from typing import Tuple
 
@@ -95,8 +96,9 @@ class Agent(AbstractAgent):
         if not self.args.test and self.epsilon > np.random.random():  # random action
             selected_action = self.env.sample()
         else:
+            dim = 0 if self.args.test else 1
             state = torch.FloatTensor(state).to(device)
-            selected_action = self.dqn(state).argmax(dim=-1)
+            selected_action = self.dqn(state).argmax(dim=dim)
             selected_action = selected_action.detach().cpu().numpy()
         return selected_action
 
@@ -191,7 +193,7 @@ class Agent(AbstractAgent):
         """Write log about loss and score"""
         print(
             "[INFO] episode %d, episode step: %d, total step: %d, total score: %d\n"
-            "epsilon: %.3f, loss: %.3f\n"
+            "epsilon: %f, loss: %f, at %s\n"
             % (
                 i,
                 self.episode_steps[0],
@@ -199,6 +201,7 @@ class Agent(AbstractAgent):
                 score,
                 self.epsilon,
                 loss,
+                datetime.datetime.now(),
             )
         )
 
@@ -252,13 +255,15 @@ class Agent(AbstractAgent):
                     losses.append(loss)  # for logging
 
                 # decrease epsilon
-                max_epsilon, min_epsilon, epsilon_decay = (
+                max_epsilon, min_epsilon, epsilon_decay, n_workers = (
                     self.hyper_params["MAX_EPSILON"],
                     self.hyper_params["MIN_EPSILON"],
                     self.hyper_params["EPSILON_DECAY"],
+                    self.hyper_params["N_WORKERS"],
                 )
                 self.epsilon = max(
-                    self.epsilon - (max_epsilon - min_epsilon) * epsilon_decay,
+                    self.epsilon
+                    - (max_epsilon - min_epsilon) * epsilon_decay * n_workers,
                     min_epsilon,
                 )
 
