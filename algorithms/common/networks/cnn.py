@@ -73,6 +73,12 @@ class CNN(nn.Module):
         x = self.fc_layers.get_last_activation(x)
         return x
 
+    def forward_late_fusion(self, x: torch.Tensor, late_in: list) -> torch.Tensor:
+        """Forward method implementation."""
+        x = self.get_last_activation_cnn(x)
+        x = self.fc_layers.forward_late_fusion(x, late_in)
+        return x
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward method implementation."""
         x = self.get_last_activation_cnn(x)
