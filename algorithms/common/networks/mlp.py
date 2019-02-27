@@ -6,7 +6,7 @@
 """
 
 from collections import defaultdict
-from typing import Callable, DefaultDict, Tuple
+from typing import Callable, DefaultDict, Dict, Tuple
 
 import torch
 import torch.nn as nn
@@ -26,30 +26,6 @@ def concat(
     states_actions = torch.cat((states, actions), dim=-1)
 
     return states_actions
-
-
-class LateFusionInfo:
-    """Dictionary that contains late fusion information."""
-
-    def __init__(self, init_info: dict):
-        """Initialization."""
-        self.default_value = -1
-        self.d: DefaultDict = defaultdict(lambda: self.default_value)
-
-        for i in init_info:
-            self.d[i] = init_info[i]
-
-    def __setitem__(self, layer_idx: int, additional_input_size: int):
-        """Set additional input size at ith hidden layer."""
-        self.d[layer_idx] = additional_input_size
-
-    def __getitem__(self, layer_idx: int) -> int:
-        """Get additional input size at ith hidden layer."""
-        return self.d[layer_idx]
-
-    def __delitem__(self, layer_idx: int):
-        """Del the additional input size at ith hidden layer."""
-        self.d[layer_idx] = self.default_value
 
 
 class MLP(nn.Module):
@@ -74,7 +50,7 @@ class MLP(nn.Module):
         hidden_sizes: list,
         hidden_activation: Callable = F.relu,
         output_activation: Callable = identity,
-        late_fusion_info: LateFusionInfo = None,
+        late_fusion_info: Dict[int, int] = None,
         use_output_layer: bool = True,
         n_category: int = -1,
         init_w: float = 3e-3,
@@ -101,16 +77,19 @@ class MLP(nn.Module):
         self.output_activation = output_activation
         self.use_output_layer = use_output_layer
         self.n_category = n_category
-        if not late_fusion_info:
-            self.late_fusion_info = LateFusionInfo({})
+        self.late_fusion_info: DefaultDict = defaultdict(lambda: -1)
+
+        # init late fusion info
+        late_fusion_info = {} if not late_fusion_info else late_fusion_info
+        for i in late_fusion_info:
+            self.late_fusion_info[i] = late_fusion_info[i]
 
         # set hidden layers
         self.hidden_layers: list = []
         in_size = self.input_size
         for i, next_size in enumerate(hidden_sizes):
-            if (
-                self.late_fusion_info[i - 1] != -1
-            ):  # 0th index has 0th hidden layer info
+            # 0th index has 0th hidden layer info
+            if self.late_fusion_info[i - 1] != -1:
                 in_size += self.late_fusion_info[i - 1]
             fc = nn.Linear(in_size, next_size)
             in_size = next_size
@@ -129,13 +108,22 @@ class MLP(nn.Module):
             x = self.hidden_activation(hidden_layer(x))
         return x
 
-    def forward_late_fusion(self, x: torch.Tensor, late_in: list) -> torch.Tensor:
+    def get_last_activation_late_fusion(
+        self, x: torch.Tensor, late_in: list
+    ) -> torch.Tensor:
         """Forward method implementation."""
         for i, hidden_layer in enumerate(self.hidden_layers):
             if self.late_fusion_info[i] != -1:
                 x = concat(x, late_in.pop(0))
             x = self.hidden_activation(hidden_layer(x))
 
+        return x
+
+    def forward_late_fusion(self, x: torch.Tensor, late_in: list) -> torch.Tensor:
+        """Forward method implementation."""
+        assert self.use_output_layer
+
+        x = self.get_last_activation_late_fusion(x, late_in)
         x = self.output_activation(self.output_layer(x))
 
         return x
@@ -145,11 +133,9 @@ class MLP(nn.Module):
         assert self.use_output_layer
 
         x = self.get_last_activation(x)
+        x = self.output_activation(self.output_layer(x))
 
-        output = self.output_layer(x)
-        output = self.output_activation(output)
-
-        return output
+        return x
 
 
 class FlattenMLP(MLP):
