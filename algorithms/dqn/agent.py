@@ -242,8 +242,10 @@ class Agent(AbstractAgent):
             if done[0]:
                 if losses:
                     avg_loss = np.array(losses).mean()
-                    self.write_log(i_episode, avg_loss, score)
                     losses.clear()
+                else:
+                    avg_loss = 0.0
+                self.write_log(i_episode, avg_loss, score)
                 score = 0
 
             self.episode_steps[np.where(done)] = 0

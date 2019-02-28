@@ -5,6 +5,8 @@
 - Contact: curt.park@medipixel.io
 """
 
+from typing import Union
+
 import cv2
 import gym
 import numpy as np
@@ -50,13 +52,38 @@ class ObservationPreprocessor(gym.ObservationWrapper):
 
 
 class ClippedRewardsWrapper(gym.RewardWrapper):
+    """Change all positive to 1, negative to -1 and keep zero."""
+
     def reward(self, reward):
         return self.signed_reward(reward)
 
     @staticmethod
     def signed_reward(reward):
-        """Change all positive to 1, negative to -1 and keep zero."""
         return np.sign(reward)
 
 
-WRAPPERS = [ObservationPreprocessor, ClippedRewardsWrapper]
+class ReducedActionWrapper(gym.ActionWrapper):
+    """Use only available 3 actions."""
+
+    def __init__(self, env: gym.Env):
+        """Initialization."""
+        self.valid_actions = np.array([0, 2, 5])
+        self.action_dim = len(self.valid_actions)
+        env.action_space.n = self.action_dim
+        env.action_space.sample = self.sample_actions
+
+        super(ReducedActionWrapper, self).__init__(env)
+
+    def action(self, idx: Union[np.int64, np.ndarray]) -> np.ndarray:
+        """Return to available actions"""
+        return self.valid_actions[idx].squeeze()
+
+    def reverse_action(self, action: np.ndarray) -> np.ndarray:
+        raise NotImplementedError
+
+    def sample_actions(self) -> int:
+        """Get random discrete action."""
+        return np.random.choice(self.action_dim)
+
+
+WRAPPERS = [ObservationPreprocessor, ClippedRewardsWrapper, ReducedActionWrapper]
