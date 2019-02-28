@@ -93,7 +93,9 @@ class Agent(AbstractAgent):
         self.curr_state = state
 
         # epsilon greedy policy
-        if not self.args.test and self.epsilon > np.random.random():  # random action
+        random_value_0_to_1 = float(np.random.random())
+        if not self.args.test and self.epsilon > random_value_0_to_1:
+            # random action
             selected_action = self.env.sample()
         else:
             dim = 0 if self.args.test else 1
