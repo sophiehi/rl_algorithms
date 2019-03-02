@@ -5,6 +5,7 @@
 - Contact: curt.park@medipixel.io
 - Paper: https://storage.googleapis.com/deepmind-media/dqn/DQNNaturePaper.pdf (DQN)
          https://arxiv.org/pdf/1509.06461.pdf (Double DQN)
+         https://arxiv.org/pdf/1511.05952.pdf (PER)
          https://arxiv.org/pdf/1709.10089.pdf (Behaviour Cloning)
 """
 
@@ -17,7 +18,7 @@ import torch
 from torch.nn.utils import clip_grad_norm_
 import wandb
 
-from algorithms.common.buffer.replay_buffer import ReplayBuffer
+from algorithms.common.buffer.priortized_replay_buffer import PrioritizedReplayBuffer
 import algorithms.common.helper_functions as common_utils
 from algorithms.dqn.agent import Agent as DQNAgent
 
@@ -42,11 +43,15 @@ class Agent(DQNAgent):
 
             # Replay buffers
             demo_batch_size = self.hyper_params["DEMO_BATCH_SIZE"]
-            self.demo_memory = ReplayBuffer(len(demo), demo_batch_size)
+            self.beta = self.hyper_params["PER_BETA"]
+            self.demo_memory = PrioritizedReplayBuffer(
+                len(demo), demo_batch_size, alpha=self.hyper_params["PER_ALPHA"]
+            )
             self.demo_memory.extend(demo)
-
-            self.memory = ReplayBuffer(
-                self.hyper_params["BUFFER_SIZE"], self.hyper_params["BATCH_SIZE"]
+            self.memory = PrioritizedReplayBuffer(
+                self.hyper_params["BUFFER_SIZE"],
+                self.hyper_params["BATCH_SIZE"],
+                alpha=self.hyper_params["PER_ALPHA"],
             )
 
             # set hyper parameters
@@ -57,14 +62,18 @@ class Agent(DQNAgent):
         """Train the model after each episode."""
         experiences = self.memory.sample()
         demos = self.demo_memory.sample()
-        exp_states, exp_actions, exp_rewards, exp_next_states, exp_dones = experiences
-        demo_states, demo_actions, demo_rewards, demo_next_states, demo_dones = demos
+
+        exp_states, exp_actions, exp_rewards = experiences[:3]
+        exp_next_states, exp_dones, exp_weights, exp_idxs = experiences[3:]
+        demo_states, demo_actions, demo_rewards = demos[:3]
+        demo_next_states, demo_dones, demo_weights, demo_idxs = demos[3:]
 
         states = torch.cat((exp_states, demo_states), dim=0)
         actions = torch.cat((exp_actions, demo_actions), dim=0)
         rewards = torch.cat((exp_rewards, demo_rewards), dim=0)
         next_states = torch.cat((exp_next_states, demo_next_states), dim=0)
         dones = torch.cat((exp_dones, demo_dones), dim=0)
+        weights = torch.cat((exp_weights, demo_weights), dim=0)
 
         q_values = self.dqn(states, self.epsilon)
         next_q_values = self.dqn(next_states, self.epsilon)
@@ -82,7 +91,8 @@ class Agent(DQNAgent):
         target = target.to(device)
 
         # calculate dq loss
-        dq_loss = torch.mean((target - curr_q_values).pow(2))
+        dq_loss_element_wise = (target - curr_q_values).pow(2) * weights
+        dq_loss = torch.mean(dq_loss_element_wise)
         dq_loss *= self.lambda1
 
         # get margin for each demo transitions
@@ -113,6 +123,22 @@ class Agent(DQNAgent):
         # update target networks
         tau = self.hyper_params["TAU"]
         common_utils.soft_update(self.dqn, self.dqn_target, tau)
+
+        # update priorities in PER
+        batch_size = self.hyper_params["BATCH_SIZE"]
+        dq_loss_element_wise = dq_loss_element_wise.detach().cpu().numpy()
+
+        new_priorities = dq_loss_element_wise[:batch_size]
+        new_priorities += self.hyper_params["PER_EPS"]
+        self.memory.update_priorities(exp_idxs, new_priorities)
+
+        new_priorities_demo = dq_loss_element_wise[batch_size:]
+        new_priorities_demo += self.hyper_params["PER_EPS"]
+        self.demo_memory.update_priorities(demo_idxs, new_priorities_demo)
+
+        # increase beta
+        fraction = min(float(self.i_episode) / self.args.episode_num, 1.0)
+        self.beta = self.beta + fraction * (1.0 - self.beta)
 
         return loss.data, dq_loss.data, supervised_loss.data
 

@@ -31,6 +31,9 @@ hyper_params = {
     "MIN_EPSILON": 0.01,
     "EPSILON_DECAY": 2e-5,
     "MARGIN": 0.8,
+    "PER_ALPHA": 0.6,
+    "PER_BETA": 0.4,
+    "PER_EPS": 1e-3,
     "LAMBDA1": 1.0,  # dq loss weight
     "LAMBDA2": 1.0,  # supervised loss weight
     "LAMBDA3": 1e-6,  # weight decay
